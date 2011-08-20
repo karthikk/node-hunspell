@@ -1,0 +1,106 @@
+#include <v8.h>
+#include <node.h>
+#include "hunspell.hxx"
+
+using namespace node;
+using namespace v8;
+
+class Spell: ObjectWrap
+{
+private:
+	Hunspell *pSpell;
+public:
+	static Persistent<FunctionTemplate> sp;
+	static void Init(Handle<Object> target)
+	{
+		HandleScope scope;
+
+		Local<FunctionTemplate> t = FunctionTemplate::New(New);
+
+		sp = Persistent<FunctionTemplate>::New(t);
+		sp->InstanceTemplate()->SetInternalFieldCount(1);
+		sp->SetClassName(String::NewSymbol("spell"));
+
+		NODE_SET_PROTOTYPE_METHOD(sp, "check", Check);
+		NODE_SET_PROTOTYPE_METHOD(sp, "suggest", Suggest);
+
+		target->Set(String::NewSymbol("checker"), 
+					      sp->GetFunction());
+	}
+
+	Spell(Hunspell *ps) :
+		pSpell(ps)
+	{
+	}
+
+	~Spell()
+	{
+		delete pSpell;
+	}
+
+	static Handle<Value> New(const Arguments &args) 
+	{
+		HandleScope scope;
+		Hunspell *h = new Hunspell("en_US.aff", "en_US.dic");
+		Spell *sp = new Spell(h);
+		sp->Wrap(args.This());
+		return args.This();
+	}
+
+	static Handle<Value> Check(const Arguments &args)
+	{
+		HandleScope scope;
+		if (args.Length() < 1) {
+			return ThrowException(Exception::Error(String::New("Need string to check")));
+		}
+
+		Spell *spell = ObjectWrap::Unwrap<Spell>(args.This());
+
+		Local<Array> arr = Array::New();
+		v8::String::AsciiValue str(args[0]);
+		//char *words = (char *) str;
+		int d = spell->pSpell->spell(*str);
+		if (!d) {
+			char **suggestions;
+			int n = spell->pSpell->suggest(&suggestions, *str);
+			for (int i = 0; i < n; i++) {
+				arr->Set(Integer::New(i), String::New(suggestions[i]));
+			}
+			spell->pSpell->free_list(&suggestions, n);
+		}
+		return arr;
+	}
+
+	static Handle<Value> Suggest(const Arguments &args)
+	{
+		HandleScope scope;
+		if (args.Length() != 1) {
+			return ThrowException(Exception::Error(String::New("")));
+		}
+
+		Spell *spell = ObjectWrap::Unwrap<Spell>(args.This());
+
+		Local<Array> arr = Array::New();
+		v8::String::AsciiValue str(args[0]);
+		//char *words = (char *) str;
+		int d = spell->pSpell->spell(*str);
+		if (!d) {
+			char **suggestions;
+			int n = spell->pSpell->suggest(&suggestions, *str);
+			for (int i = 0; i < n; i++) {
+				arr->Set(Integer::New(i), String::New(suggestions[i]));
+			}
+			spell->pSpell->free_list(&suggestions, n);
+		}
+		return arr;
+	}
+};
+
+Persistent<FunctionTemplate> Spell::sp;
+extern "C" {
+	static void init(Handle<Object> target) {
+		Spell::Init(target);
+	}
+
+	NODE_MODULE(spell, init);
+}
